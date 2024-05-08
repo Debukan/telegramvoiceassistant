@@ -71,8 +71,71 @@ def debug_handler(message):
         bot.send_document(message.chat.id, f)
 
 
+# обработка команды tts
+@bot.message_handler(commands=["tts"])
+def tts_handler(message):
+    user_id = message.chat.id
+    bot.send_message(user_id, 'Отправь следующим сообщением текст, чтобы я его озвучил!')
+    bot.register_next_step_handler(message, tts_func)
+
+
+# обработка текста для озвучки
+def tts_func(message):
+    user_id = message.chat.id
+    if not message.text:
+        bot.send_message(message.chat.id, "Отправьте текстовое сообщением!")
+        bot.register_next_step_handler(message, stt_func)
+        return
+    json, token1 = tts.make_json(message.text)
+
+    full_response = tts.send_request(json)
+    response = tts.process_resp(full_response)
+    if not response[0]:
+        bot.send_message(message.chat.id, response[1])
+        logging.error(response[1])
+    else:
+        with open("output.ogg", "wb") as audio_file:
+            audio_file.write(response[1])
+        with open("output.ogg", "rb") as audio_file:
+            bot.send_voice(message.chat.id, audio_file)
+        logging.info("Бот закончил синтез")
+
+
+# обработка команды stt
+@bot.message_handler(commands=['stt'])
+def stt_handler(message):
+    user_id = message.chat.id
+    bot.send_message(user_id, 'Отправь следующим сообщением аудио, чтобы я его распознал!')
+    bot.register_next_step_handler(message, stt_func)
+
+
+# функция аудио для распознавания
+def stt_func(message):
+    user_id = message.chat.id
+    if not message.voice:
+        bot.send_message(message.chat.id, "Отправьте аудио сообщением!")
+        bot.register_next_step_handler(message, stt_func)
+        return
+    status, error_message = is_stt_block_limit(stt.count_blocks(message.voice.duration))
+    if not status:
+        bot.send_message(user_id, error_message)
+        return
+    else:
+        file_id = message.voice.file_id
+        file_info = bot.get_file(file_id)
+        file = bot.download_file(file_info.file_path)
+        full_response = stt.send_request(file)
+        response = stt.process_resp(response=full_response)
+        if not response[0]:
+            bot.send_message(message.chat.id, response[1])
+            logging.error(response[1])
+        else:
+            bot.send_message(message.chat.id, response[1], reply_to_message_id=message.message_id)
+            logging.info("Бот закончил распознавание")
+
+
 # обработка текстовых сообщений
-@bot.message_handler(content_types=["text"])
+@bot.message_handler(content_types=["text"], func=lambda message: not message.text.startswith("/") and message.text not in [cmd for cmd in list(COMMANDS.keys())])
 def text_handler(message):
     user_id = message.chat.id
     status, error_message = check_number_of_users(user_id)
@@ -166,66 +229,5 @@ def voice_handler(message):
         audio_file.write(response[1])
     with open("output.ogg", "rb") as audio_file:
         bot.send_voice(user_id, audio_file)
-
-
-
-# обработка команды tts
-@bot.message_handler(commands=["tts"])
-def tts_handler(message):
-    user_id = message.chat.id
-    bot.send_message(user_id, 'Отправь следующим сообщением текст, чтобы я его озвучил!')
-    bot.register_next_step_handler(message, tts)
-
-
-# обработка текста для озвучки
-def tts_func(message):
-    user_id = message.chat.id
-    json, token1 = tts.make_json(message.text)
-
-    full_response = tts.send_request(json)
-    response = tts.process_resp(full_response)
-    if not response[0]:
-        bot.send_message(message.chat.id, response[1])
-        logging.error(response[1])
-    else:
-        with open("output.ogg", "wb") as audio_file:
-            audio_file.write(response[1])
-        with open("output.ogg", "rb") as audio_file:
-            bot.send_voice(message.chat.id, audio_file)
-        logging.info("Бот закончил синтез")
-
-
-# обработка команды stt
-@bot.message_handler(commands=['stt'])
-def stt_handler(message):
-    user_id = message.chat.id
-    bot.send_message(user_id, 'Отправь следующим сообщением аудио, чтобы я его распознал!')
-    bot.register_next_step_handler(message, stt_func)
-
-
-# функция аудио для распознавания
-def stt_func(message):
-    user_id = message.chat.id
-    blocks = db.get_blocks_usage()
-    if not message.voice:
-        bot.send_message(message.chat.id, "Отправьте аудио сообщением!")
-        bot.register_next_step_handler(message, stt_func)
-        return
-    status, error_message = is_stt_block_limit(stt.count_blocks(message.voice.duration))
-    if not status:
-        bot.send_message(user_id, error_message)
-        return
-    else:
-        file_id = message.voice.file_id
-        file_info = bot.get_file(file_id)
-        file = bot.download_file(file_info.file_path)
-        full_response = stt.send_request(file)
-        response = stt.process_resp(response=full_response)
-        if not response[0]:
-            bot.send_message(message.chat.id, response[1])
-            logging.error(response[1])
-        else:
-            bot.send_message(message.chat.id, response[1], reply_to_message_id=message.message_id)
-            logging.info("Бот закончил распознавание")
 
 bot.infinity_polling()
